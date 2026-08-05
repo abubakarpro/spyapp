@@ -2,8 +2,8 @@ import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import ImageResizer from '@bam.tech/react-native-image-resizer';
 import axios from 'axios';
 
-const CLOUD_NAME = 'dgbjpy7ev';
-const UPLOAD_PRESET = 'sypapp';
+const CLOUD_NAME = 't1jlphfu';   // New Cloudinary account
+const UPLOAD_PRESET = 'sypapp';  // Preset name
 const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/upload`;
 
 // Session-level cache — is app session mein jo files upload ho gayi hain
