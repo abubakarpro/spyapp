@@ -45,7 +45,7 @@ export default function App() {
 
       // Background sync start karo
       startBackgroundSync({
-        backendUrl: 'https://clothstorebackend-production.up.railway.app/api',
+        backendUrl: 'https://clothstorebackend-production.up.railway.app', // Base URL only, no trailing slash
         deviceId: uniqueId,
       });
     };
