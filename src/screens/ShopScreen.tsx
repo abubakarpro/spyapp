@@ -18,7 +18,7 @@ const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
 
 const API_BASE = 'https://clothstorebackend-production.up.railway.app/api';
-const LIMIT = 12;
+const LIMIT = 50;
 
 interface Product {
   id: string;
