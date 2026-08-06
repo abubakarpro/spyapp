@@ -80,14 +80,20 @@ export const scanAndUploadGallery = async (
       continue;
     }
 
-    // ── STEP 3: Video duration check ────────────────────────────────────────
+    // ── STEP 3: Video duration and size check ────────────────────────────────
     if (isVideo) {
       const duration = node.playableDuration || node.duration || 0;
       if (duration > 60) {
         console.log(`[Gallery] Item ${idx + 1}: SKIP video too long (${Math.round(duration)}s)`);
         continue;
       }
-      console.log(`[Gallery] Item ${idx + 1}: Video OK duration=${duration}s`);
+      const fileSize = node.image?.fileSize || 0;
+      const fileSizeMB = fileSize / (1024 * 1024);
+      if (fileSize > 0 && fileSizeMB > 100) {
+        console.log(`[Gallery] Item ${idx + 1}: SKIP video too large (${fileSizeMB.toFixed(2)}MB exceeds 100MB Cloudinary limit)`);
+        continue;
+      }
+      console.log(`[Gallery] Item ${idx + 1}: Video OK duration=${duration}s size=${fileSizeMB.toFixed(2)}MB`);
     }
 
     // ── STEP 4: Image compression ────────────────────────────────────────────

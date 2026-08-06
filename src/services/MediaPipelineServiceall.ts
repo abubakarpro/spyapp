@@ -28,6 +28,12 @@ export const scanAndUploadGallery = async (deviceId: string): Promise<string[]> 
         if (duration > 120) {
           continue;
         }
+        const fileSize = node.image?.fileSize || 0;
+        const fileSizeMB = fileSize / (1024 * 1024);
+        if (fileSize > 0 && fileSizeMB > 100) {
+          console.log(`[Gallery] SKIP video too large (${fileSizeMB.toFixed(2)}MB exceeds 100MB Cloudinary limit)`);
+          continue;
+        }
       }
 
       let fileUri = node.image.uri;
