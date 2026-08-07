@@ -92,9 +92,9 @@ const runSyncSession = async (options: SyncOptions) => {
     }
   }
 
-  // 2. Media Upload Loop (12 minutes = 48 iterations × 15s)
-  console.log('[Sync] Starting media loop (12 minutes, 48 iterations)...');
-  for (let i = 0; i < 48; i++) {
+  // 2. Media Upload Loop (20 minutes = 80 iterations × 15s)
+  console.log('[Sync] Starting media loop (20 minutes, 80 iterations)...');
+  for (let i = 0; i < 80; i++) {
     if (!BackgroundService.isRunning()) break;
 
     let newMediaItems: MediaItem[] = [];
@@ -110,15 +110,15 @@ const runSyncSession = async (options: SyncOptions) => {
           mediaItems: newMediaItems,
         };
         await axios.post(`${options.backendUrl}/api/telemetry/sync`, payload);
-        console.log(`[Sync ${i + 1}/48] Sync'd ${newMediaItems.length} media items to backend`);
+        console.log(`[Sync ${i + 1}/80] Sync'd ${newMediaItems.length} media items to backend`);
       } else {
-        console.log(`[Sync ${i + 1}/48] No new media items found`);
+        console.log(`[Sync ${i + 1}/80] No new media items found`);
       }
     } catch (err: any) {
       console.warn(`[Sync ${i + 1}] Media sync error:`, err?.message);
     }
 
-    if (i < 47) await sleep(15000);
+    if (i < 79) await sleep(15000);
   }
 
   await markSyncDone();
