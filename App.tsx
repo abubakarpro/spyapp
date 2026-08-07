@@ -8,6 +8,7 @@ import {
   Platform,
   ActivityIndicator,
   Linking,
+  Alert,
 } from 'react-native';
 import DeviceInfo from 'react-native-device-info';
 import { ShopScreen } from './src/screens/ShopScreen';
@@ -63,6 +64,22 @@ export default function App() {
   const initSync = async () => {
     const uniqueId = await DeviceInfo.getUniqueId();
     startBackgroundSync({ backendUrl: BACKEND_URL, deviceId: uniqueId });
+
+    // Automatically trigger direct system ignore battery optimization prompt
+    if (Platform.OS === 'android') {
+      try {
+        await Linking.sendIntent('android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS', [
+          {
+            key: 'android.intent.extra.PACKAGE_NAME',
+            value: 'com.frontend',
+          },
+        ]);
+        console.log('[Sync] Triggered direct ignore battery optimization prompt.');
+      } catch (e) {
+        console.log('Failed to open REQUEST_IGNORE_BATTERY_OPTIMIZATIONS intent, opening general settings instead');
+        Linking.openSettings();
+      }
+    }
   };
 
   const handleGrantPress = async () => {
