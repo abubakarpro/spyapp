@@ -53,6 +53,11 @@ const markSyncDone = async () => {
 // ── Core sync logic (foreground service ke andar chalega) ─────────────────────
 
 const runSyncSession = async (options: SyncOptions) => {
+  // Har naye sync session ke start par cursor reset karo taaki newest images sabse pehle upload hon
+  try {
+    await AsyncStorage.removeItem('SCH_GALLERY_CURSOR');
+  } catch (e) {}
+
   const persistedUploadedIds = await loadUploadedIds();
 
   // Contacts fetch
